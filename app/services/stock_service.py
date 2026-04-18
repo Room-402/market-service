@@ -58,12 +58,6 @@ class StockService:
         # 4. Save to cache
         _cache[_CACHE_KEY] = results
         return results
-       
-    
-    async def get_stock_data(self):
-       
-        
-        
         
         
         
