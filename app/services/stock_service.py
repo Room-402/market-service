@@ -6,6 +6,7 @@ from typing import List, Optional, Callable, Any
 from app.repositories.stock_repository import StockRepository
 from app.core.redis_client import get_redis
 from app.core.config import settings
+from app.schemas.stock import StockSearchResponse
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +76,6 @@ class StockService:
                     continue
             return results
 
-        # Since fetch_nifty is async, we can't easily use the sync helper directly for the fetch part
         try:
             cached = self.redis.get(cache_key)
             if cached:
@@ -95,7 +95,6 @@ class StockService:
     def get_stock_details(self, symbol: str, ttl: Optional[int] = None):
         symbol = symbol.upper()
         cache_key = f"stock:{symbol}:details"
-        # Use provided TTL or default to PRICE_TTL for details
         target_ttl = ttl if ttl is not None else settings.PRICE_TTL
 
         def fetch_details():
@@ -110,7 +109,8 @@ class StockService:
                 "day_low": data.get("dayLow"),
                 "company_name": data.get("longName"),
                 "pe_ratio": data.get("forwardPE"),
-                "market_cap": data.get("marketCap")
+                "market_cap": data.get("marketCap"),
+                "other_details": data
             }
 
         return self._get_cached_or_fetch(cache_key, fetch_details, target_ttl)
@@ -120,3 +120,21 @@ class StockService:
         for symbol in symbols:
             results[symbol] = self.get_stock_details(symbol, ttl)
         return results
+
+    def search_stocks(self, query: str, ttl: Optional[int] = None):
+        cache_key = f"search:{query}"
+        target_ttl = ttl if ttl is not None else settings.SEARCH_TTL
+
+        def fetch_search():
+            search = yf.Search(query, max_results=15, enable_fuzzy_query=True)
+            equities = [q for q in search.quotes if q.get("quoteType") == "EQUITY" and (q.get("exchange") in ["NSI", "NSE", "BSE"])]
+            return [
+                {
+                    "ticker": q.get("symbol", ""),
+                    "company_name": q.get("shortname", ""),
+                    "exchange": q.get("exchange", "")
+                }
+                for q in equities
+            ]
+
+        return self._get_cached_or_fetch(cache_key, fetch_search, target_ttl)

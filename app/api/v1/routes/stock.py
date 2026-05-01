@@ -30,3 +30,12 @@ def get_stock_details_batch(
 ):
     data = service.get_stock_details_batch(symbols, ttl) 
     return {"stock_details": data}
+
+@router.get("/search")
+def search(
+    query: str,
+    ttl: Optional[int] = Query(None, description="Custom TTL in seconds"),
+    service: StockService = Depends(get_stock_service)
+):
+    data = service.search_stocks(query, ttl)
+    return {"items": data}
