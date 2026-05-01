@@ -2,6 +2,7 @@ import yfinance as yf
 import math
 from cachetools import TTLCache
 from app.repositories.stock_repository import StockRepository
+from typing import List
 
 # Cache for 10 minutes, max 1 item (the whole list)
 _cache = TTLCache(maxsize=1, ttl=600)
@@ -58,6 +59,40 @@ class StockService:
         # 4. Save to cache
         _cache[_CACHE_KEY] = results
         return results
+    
+    def get_stock_details(self, symbol: str):
+        
+        ticker_symbol = f"{symbol.upper()}.NS"
+        ticker = yf.Ticker(ticker_symbol)
+        data = ticker.info
+
+        details = {
+            "symbol": symbol.upper(),
+            "price": data.get("currentPrice"),
+            "day_high": data.get("dayHigh"),
+            "day_low": data.get("dayLow"),
+            "company_name": data.get("longName")
+        }
+        return details
+    
+    def get_stock_details_batch(self,symbols: list[str]):
+        results = {}
+        for symbol in symbols:
+            ticker_symbol = f"{symbol.upper()}.NS"
+            ticker = yf.Ticker(ticker_symbol)
+            data = ticker.info
+
+            details = {
+                "symbol": symbol.upper(),
+                "price": data.get("currentPrice"),
+                "day_high": data.get("dayHigh"),
+                "day_low": data.get("dayLow"),
+                "company_name": data.get("longName")
+            }
+            results[symbol] = details
+        return results
+        
+        
         
         
         
