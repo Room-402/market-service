@@ -24,6 +24,11 @@ def get_stock_details_batch(symbols: list[str] = Query(...),
     data = service.get_stock_details_batch(symbols) 
     return {"stock_details": data}
     
+@router.get("/search")
+def search(query: str,service: StockService = Depends(get_stock_service) ):
+    data = service.search_stocks(query)
+    return {"items": data}
+    
     
     
       

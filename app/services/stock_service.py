@@ -3,6 +3,7 @@ import math
 from cachetools import TTLCache
 from app.repositories.stock_repository import StockRepository
 from typing import List
+from app.schemas.stock import StockSearchResponse
 
 # Cache for 10 minutes, max 1 item (the whole list)
 _cache = TTLCache(maxsize=1, ttl=600)
@@ -20,7 +21,7 @@ class StockService:
         # 2. Get dynamic tickers from Repository (NSE CSV)
         stocks = await self.repository.get_nifty_50_stocks()
         # Convert NSE symbols to Yahoo Finance tickers (add .NS)
-        tickers = [f"{s.symbol}.NS" for s in stocks]
+        tickers = [s.symbol for s in stocks]
 
         # 3. Fetch live prices from Yahoo Finance
         data = yf.download(
@@ -33,7 +34,7 @@ class StockService:
         
         results = []
         for stock in stocks:
-            ticker = f"{stock.symbol}.NS"
+            ticker = stock.symbol
             try:
                 # Basic check to see if ticker is in the download result
                 if ticker not in data.columns.levels[0]:
@@ -62,23 +63,24 @@ class StockService:
     
     def get_stock_details(self, symbol: str):
         
-        ticker_symbol = f"{symbol.upper()}.NS"
+        ticker_symbol = symbol.upper()
         ticker = yf.Ticker(ticker_symbol)
         data = ticker.info
-
+        
         details = {
             "symbol": symbol.upper(),
             "price": data.get("currentPrice"),
             "day_high": data.get("dayHigh"),
             "day_low": data.get("dayLow"),
-            "company_name": data.get("longName")
+            "company_name": data.get("longName"),
+            "other_details": data
         }
         return details
     
     def get_stock_details_batch(self,symbols: list[str]):
         results = {}
         for symbol in symbols:
-            ticker_symbol = f"{symbol.upper()}.NS"
+            ticker_symbol = symbol.upper()
             ticker = yf.Ticker(ticker_symbol)
             data = ticker.info
 
@@ -91,6 +93,24 @@ class StockService:
             }
             results[symbol] = details
         return results
+        
+    def search_stocks(self, query: str):
+        search = yf.Search(query, max_results=15, enable_fuzzy_query=True)
+        equities = [q for q in search.quotes if q.get("quoteType") == "EQUITY" and (q.get("exchange") in ["NSI", "NSE", "BSE"])]
+        results = [
+                    StockSearchResponse(
+                        ticker=q.get("symbol", ""),
+                        company_name=q.get("shortname", ""),
+                        exchange=q.get("exchange", "")
+                    )
+                    for q in equities
+                ]
+        print(results)
+        return results
+
+        
+        
+        
         
         
         
