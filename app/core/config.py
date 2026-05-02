@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     REDIS_PORT: int = 6379
     REDIS_PASSWORD: str = ""
     REDIS_DB: int = 0
+    REDIS_SSL: bool = False
 
     # Cache TTLs (seconds)
     PRICE_TTL: int = 30          # live stock price — refreshed every 30s
