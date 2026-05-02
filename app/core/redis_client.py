@@ -17,6 +17,9 @@ class RedisClient:
                     port=settings.REDIS_PORT,
                     password=settings.REDIS_PASSWORD,
                     db=settings.REDIS_DB,
+                    ssl=settings.REDIS_SSL,
+                    ssl_cert_reqs="required",
+                    ssl_ca_certs=__import__("certifi").where() if settings.REDIS_SSL else None,
                     decode_responses=True,
                     socket_connect_timeout=5
                 )

@@ -5,3 +5,4 @@ pydantic-settings>=2.2.0
 yfinance
 redis>=5.0.0
 httpx
+certifi
