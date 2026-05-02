@@ -1,4 +1,4 @@
-import yfinance as yf
+from yahooquery import Ticker
 import math
 import json
 import logging
@@ -16,24 +16,19 @@ class StockService:
         self.redis = get_redis()
 
     def _get_cached_or_fetch(self, cache_key: str, fetch_fn: Callable, ttl: int) -> Any:
-        """
-        Generic Cache-Aside helper.
-        """
         try:
             cached = self.redis.get(cache_key)
             if cached:
-                logger.info(f"Cache HIT for key: {cache_key}")
                 return json.loads(cached)
         except Exception as e:
-            logger.error(f"Redis error during GET for {cache_key}: {e}")
+            logger.error(f"Redis error: {e}")
 
-        logger.info(f"Cache MISS for key: {cache_key}. Fetching fresh data...")
         fresh_data = fetch_fn()
         
         try:
             self.redis.setex(cache_key, ttl, json.dumps(fresh_data))
         except Exception as e:
-            logger.error(f"Redis error during SET for {cache_key}: {e}")
+            logger.error(f"Redis error: {e}")
             
         return fresh_data
 
@@ -42,30 +37,23 @@ class StockService:
         
         async def fetch_nifty():
             stocks = await self.repository.get_nifty_50_stocks()
-            tickers = [f"{s.symbol}.NS" for s in stocks]
-
-            data = yf.download(
-                tickers=tickers, 
-                period="1d", 
-                group_by='ticker', 
-                threads=True,
-                progress=False
-            )
+            tickers_list = [f"{s.symbol}.NS" for s in stocks]
+            
+            # yahooquery handles batch requests very efficiently
+            t = Ticker(tickers_list, asynchronous=True)
+            prices = t.price
             
             results = []
             for stock in stocks:
-                ticker = f"{stock.symbol}.NS"
+                symbol_ns = f"{stock.symbol}.NS"
                 try:
-                    if ticker not in data.columns.levels[0]:
+                    detail = prices.get(symbol_ns, {})
+                    if isinstance(detail, str): # Error message
                         continue
-
-                    raw_close = data[ticker]['Close'].iloc[-1]
-                    raw_open = data[ticker]['Open'].iloc[-1]
+                        
+                    price = detail.get("regularMarketPrice")
+                    change = detail.get("regularMarketChange")
                     
-                    price = None if math.isnan(raw_close) else round(float(raw_close), 2)
-                    change = None
-                    if not math.isnan(raw_close) and not math.isnan(raw_open):
-                        change = round(float(raw_close - raw_open), 2)
                     results.append({
                         "symbol": stock.symbol,
                         "company_name": stock.company_name,
@@ -76,43 +64,36 @@ class StockService:
                     continue
             return results
 
-        try:
-            cached = self.redis.get(cache_key)
-            if cached:
-                return json.loads(cached)
-        except Exception:
-            pass
-
-        fresh_data = await fetch_nifty()
-        
-        try:
-            self.redis.setex(cache_key, ttl, json.dumps(fresh_data))
-        except Exception:
-            pass
-            
-        return fresh_data
+        return self._get_cached_or_fetch(cache_key, fetch_nifty, ttl)
     
     def get_stock_details(self, symbol: str, ttl: Optional[int] = None):
         symbol = symbol.upper()
-        cache_key = f"stock:{symbol}:details"
+        ticker_symbol = symbol if "." in symbol else f"{symbol}.NS"
+        cache_key = f"stock:{ticker_symbol}:details"
         target_ttl = ttl if ttl is not None else settings.PRICE_TTL
 
         def fetch_details():
-            ticker_symbol = f"{symbol}"
-            ticker = yf.Ticker(ticker_symbol)
-            data = ticker.info
+            t = Ticker(ticker_symbol)
+            # summary_detail and price contain almost everything
+            all_modules = t.all_modules.get(ticker_symbol, {})
+            
+            if isinstance(all_modules, str):
+                logger.error(f"YahooQuery error for {ticker_symbol}: {all_modules}")
+                return None
 
+            price_data = all_modules.get("price", {})
+            summary_data = all_modules.get("summaryDetail", {})
+            
             return {
-                "symbol": symbol,
-                "price": data.get("currentPrice"),
-                "day_high": data.get("dayHigh"),
-                "day_low": data.get("dayLow"),
-                "company_name": data.get("longName"),
-                "pe_ratio": data.get("forwardPE"),
-                "market_cap": data.get("marketCap"),
-                "other_details": data
+                "symbol": ticker_symbol,
+                "price": price_data.get("regularMarketPrice"),
+                "day_high": price_data.get("regularMarketDayHigh"),
+                "day_low": price_data.get("regularMarketDayLow"),
+                "company_name": price_data.get("longName"),
+                "pe_ratio": summary_data.get("forwardPE"),
+                "market_cap": price_data.get("marketCap"),
+                "other_details": all_modules
             }
-        print(fetch_details)
         return self._get_cached_or_fetch(cache_key, fetch_details, target_ttl)
     
     def get_stock_details_batch(self, symbols: List[str], ttl: Optional[int] = None):
@@ -122,38 +103,49 @@ class StockService:
         return results
 
     def search_stocks(self, query: str, ttl: Optional[int] = None):
+        # Search still uses the standard Scraper, but yahooquery's implementation is often cleaner
         cache_key = f"search:{query}"
         target_ttl = ttl if ttl is not None else settings.SEARCH_TTL
 
         def fetch_search():
-            search = yf.Search(query, max_results=15, enable_fuzzy_query=True)
-            equities = [q for q in search.quotes if q.get("quoteType") == "EQUITY" and (q.get("exchange") in ["NSI", "NSE", "BSE"])]
+            # For searching, we still use yfinance or another logic if yahooquery search is limited
+            # But let's try yahooquery's built-in search if possible or just stick to a logic that works
+            import requests
+            url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}"
+            resp = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+            data = resp.json()
+            
+            quotes = data.get("quotes", [])
             return [
                 {
                     "ticker": q.get("symbol", ""),
                     "company_name": q.get("shortname", ""),
                     "exchange": q.get("exchange", "")
                 }
-                for q in equities
+                for q in quotes if q.get("quoteType") == "EQUITY"
             ]
 
         return self._get_cached_or_fetch(cache_key, fetch_search, target_ttl)
 
     def get_stock_history(self, symbol: str, period: str, interval: str, ttl: Optional[int] = None):
         symbol = symbol.upper()
-        cache_key = f"stock:{symbol}:history:{period}:{interval}"
+        ticker_symbol = symbol if "." in symbol else f"{symbol}.NS"
+        cache_key = f"stock:{ticker_symbol}:history:{period}:{interval}"
         target_ttl = ttl if ttl is not None else 3600
 
         def fetch_history():
-            ticker_symbol = f"{symbol}"
-            ticker = yf.Ticker(ticker_symbol)
-            hist = ticker.history(period=period, interval=interval)
+            t = Ticker(ticker_symbol)
+            df = t.history(period=period, interval=interval)
             
             results = []
-            for date, row in hist.iterrows():
+            if df.empty:
+                return results
+                
+            # yahooquery history returns a DataFrame with MultiIndex (symbol, date)
+            for index, row in df.iterrows():
                 results.append({
-                    "timestamp": str(date),
-                    "price": round(float(row["Close"]), 2)
+                    "timestamp": str(index[1]) if isinstance(index, tuple) else str(index),
+                    "price": round(float(row["close"]), 2)
                 })
             return results
 
