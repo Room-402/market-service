@@ -98,7 +98,7 @@ class StockService:
         target_ttl = ttl if ttl is not None else settings.PRICE_TTL
 
         def fetch_details():
-            ticker_symbol = f"{symbol}.NS"
+            ticker_symbol = f"{symbol}"
             ticker = yf.Ticker(ticker_symbol)
             data = ticker.info
 
@@ -112,7 +112,7 @@ class StockService:
                 "market_cap": data.get("marketCap"),
                 "other_details": data
             }
-
+        print(fetch_details)
         return self._get_cached_or_fetch(cache_key, fetch_details, target_ttl)
     
     def get_stock_details_batch(self, symbols: List[str], ttl: Optional[int] = None):
@@ -138,3 +138,23 @@ class StockService:
             ]
 
         return self._get_cached_or_fetch(cache_key, fetch_search, target_ttl)
+
+    def get_stock_history(self, symbol: str, period: str, interval: str, ttl: Optional[int] = None):
+        symbol = symbol.upper()
+        cache_key = f"stock:{symbol}:history:{period}:{interval}"
+        target_ttl = ttl if ttl is not None else 3600
+
+        def fetch_history():
+            ticker_symbol = f"{symbol}"
+            ticker = yf.Ticker(ticker_symbol)
+            hist = ticker.history(period=period, interval=interval)
+            
+            results = []
+            for date, row in hist.iterrows():
+                results.append({
+                    "timestamp": str(date),
+                    "price": round(float(row["Close"]), 2)
+                })
+            return results
+
+        return self._get_cached_or_fetch(cache_key, fetch_history, target_ttl)
