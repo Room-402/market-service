@@ -39,3 +39,14 @@ def search(
 ):
     data = service.search_stocks(query, ttl)
     return {"items": data}
+
+@router.get("/history")
+def get_stock_history(
+    symbol: str,
+    period: str = Query(..., description="Period (e.g., 1d, 5d, 1mo, 1y, max)"),
+    interval: str = Query(..., description="Interval (e.g., 5m, 1h, 1d)"),
+    ttl: Optional[int] = Query(None, description="Custom TTL in seconds"),
+    service: StockService = Depends(get_stock_service)
+):
+    data = service.get_stock_history(symbol, period, interval, ttl)
+    return {"history": data}
