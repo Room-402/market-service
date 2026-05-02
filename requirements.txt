@@ -6,3 +6,4 @@ yfinance
 redis>=5.0.0
 httpx
 certifi
+curl_cffi
