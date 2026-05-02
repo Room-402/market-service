@@ -15,7 +15,7 @@ class StockService:
     def __init__(self, repository: StockRepository = None):
         self.repository = repository or StockRepository()
         self.redis = get_redis()
-        # Create a curl_cffi session which yfinance now requires for cloud environments
+        # Create a curl_cffi session with chrome impersonation for high-fidelity browser mimicry
         self.session = requests_cffi.Session(impersonate="chrome")
 
     def _get_cached_or_fetch(self, cache_key: str, fetch_fn: Callable, ttl: int) -> Any:
@@ -98,21 +98,29 @@ class StockService:
     
     def get_stock_details(self, symbol: str, ttl: Optional[int] = None):
         symbol = symbol.upper()
-        cache_key = f"stock:{symbol}:details"
+        # Auto-append .NS for Indian stocks if no suffix provided
+        ticker_symbol = symbol if "." in symbol else f"{symbol}.NS"
+        
+        cache_key = f"stock:{ticker_symbol}:details"
         target_ttl = ttl if ttl is not None else settings.PRICE_TTL
 
         def fetch_details():
-            ticker_symbol = f"{symbol}"
             ticker = yf.Ticker(ticker_symbol, session=self.session)
             data = ticker.info
+            
+            if not data or data.get("quoteType") == "NONE":
+                logger.warning(f"Yahoo returned empty data for {ticker_symbol}. Check if rate-limited.")
+
+            # NSE stocks often use 'regularMarketPrice' instead of 'currentPrice'
+            price = data.get("currentPrice") or data.get("regularMarketPrice") or data.get("navPrice")
 
             return {
-                "symbol": symbol,
-                "price": data.get("currentPrice"),
-                "day_high": data.get("dayHigh"),
-                "day_low": data.get("dayLow"),
-                "company_name": data.get("longName"),
-                "pe_ratio": data.get("forwardPE"),
+                "symbol": ticker_symbol,
+                "price": price,
+                "day_high": data.get("dayHigh") or data.get("regularMarketDayHigh"),
+                "day_low": data.get("dayLow") or data.get("regularMarketDayLow"),
+                "company_name": data.get("longName") or data.get("shortName"),
+                "pe_ratio": data.get("forwardPE") or data.get("trailingPE"),
                 "market_cap": data.get("marketCap"),
                 "other_details": data
             }
@@ -144,11 +152,13 @@ class StockService:
 
     def get_stock_history(self, symbol: str, period: str, interval: str, ttl: Optional[int] = None):
         symbol = symbol.upper()
-        cache_key = f"stock:{symbol}:history:{period}:{interval}"
+        # Auto-append .NS if missing
+        ticker_symbol = symbol if "." in symbol else f"{symbol}.NS"
+        
+        cache_key = f"stock:{ticker_symbol}:history:{period}:{interval}"
         target_ttl = ttl if ttl is not None else 3600
 
         def fetch_history():
-            ticker_symbol = f"{symbol}"
             ticker = yf.Ticker(ticker_symbol, session=self.session)
             hist = ticker.history(period=period, interval=interval)
             
