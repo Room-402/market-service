@@ -1,4 +1,4 @@
-import yfinance as yf
+from yahooquery import Ticker
 import json
 import logging
 from typing import Optional, Any, Callable
@@ -32,15 +32,20 @@ class MarketService:
         cache_key = "market_indices"
 
         def fetch_indices():
-            indices = ["^NSEI", "^BSESN"]
+            indices_symbols = {"^NSEI": "Nifty 50", "^BSESN": "Sensex"}
+            
+            # Use yahooquery Ticker for the batch
+            t = Ticker(list(indices_symbols.keys()))
+            price_data = t.price
+            
             results = {}
-            for index in indices:
-                ticker = yf.Ticker(index)
-                data = ticker.info
-                name = "Nifty 50" if index == "^NSEI" else "Sensex"
+            for symbol, name in indices_symbols.items():
+                data = price_data.get(symbol, {})
+                if isinstance(data, str): # Error message
+                    continue
                 
                 results[name] = {
-                    "price": data.get("regularMarketPrice") or data.get("currentPrice"),
+                    "price": data.get("regularMarketPrice"),
                     "change_percent": data.get("regularMarketChangePercent")
                 }
             return results
