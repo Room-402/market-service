@@ -18,3 +18,9 @@ class Stock(BaseModel):
     industry: str
     series: str
     isin_code: str
+
+class StockSearchResponse(BaseModel):
+    ticker: str
+    company_name: str 
+    exchange: str
+    
