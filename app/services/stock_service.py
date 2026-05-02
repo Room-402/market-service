@@ -1,6 +1,7 @@
 import yfinance as yf
 import math
 import json
+import requests
 import logging
 from typing import List, Optional, Callable, Any
 from app.repositories.stock_repository import StockRepository
@@ -14,6 +15,11 @@ class StockService:
     def __init__(self, repository: StockRepository = None):
         self.repository = repository or StockRepository()
         self.redis = get_redis()
+        # Use a custom session to bypass Yahoo Finance rate limits
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        })
 
     def _get_cached_or_fetch(self, cache_key: str, fetch_fn: Callable, ttl: int) -> Any:
         """
@@ -49,7 +55,8 @@ class StockService:
                 period="1d", 
                 group_by='ticker', 
                 threads=True,
-                progress=False
+                progress=False,
+                session=self.session
             )
             
             results = []
@@ -99,7 +106,7 @@ class StockService:
 
         def fetch_details():
             ticker_symbol = f"{symbol}"
-            ticker = yf.Ticker(ticker_symbol)
+            ticker = yf.Ticker(ticker_symbol, session=self.session)
             data = ticker.info
 
             return {
@@ -112,7 +119,6 @@ class StockService:
                 "market_cap": data.get("marketCap"),
                 "other_details": data
             }
-        print(fetch_details)
         return self._get_cached_or_fetch(cache_key, fetch_details, target_ttl)
     
     def get_stock_details_batch(self, symbols: List[str], ttl: Optional[int] = None):
@@ -126,7 +132,7 @@ class StockService:
         target_ttl = ttl if ttl is not None else settings.SEARCH_TTL
 
         def fetch_search():
-            search = yf.Search(query, max_results=15, enable_fuzzy_query=True)
+            search = yf.Search(query, max_results=15, enable_fuzzy_query=True, session=self.session)
             equities = [q for q in search.quotes if q.get("quoteType") == "EQUITY" and (q.get("exchange") in ["NSI", "NSE", "BSE"])]
             return [
                 {
@@ -146,7 +152,7 @@ class StockService:
 
         def fetch_history():
             ticker_symbol = f"{symbol}"
-            ticker = yf.Ticker(ticker_symbol)
+            ticker = yf.Ticker(ticker_symbol, session=self.session)
             hist = ticker.history(period=period, interval=interval)
             
             results = []
