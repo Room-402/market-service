@@ -98,7 +98,7 @@ class StockService:
         target_ttl = ttl if ttl is not None else settings.PRICE_TTL
 
         def fetch_details():
-            ticker_symbol = f"{symbol}.NS"
+            ticker_symbol = f"{symbol}"
             ticker = yf.Ticker(ticker_symbol)
             data = ticker.info
 
@@ -112,7 +112,7 @@ class StockService:
                 "market_cap": data.get("marketCap"),
                 "other_details": data
             }
-
+        print(fetch_details)
         return self._get_cached_or_fetch(cache_key, fetch_details, target_ttl)
     
     def get_stock_details_batch(self, symbols: List[str], ttl: Optional[int] = None):
